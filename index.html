@@ -1,0 +1,863 @@
+﻿<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>2D フロアマップエディタ（テンプレ無し・完成版）</title>
+  <style>
+    :root{ --toolbar-bg:#e2e8f0; --panel-bg:#f8fafc; --accent:#10b981; --text:#0f172a; --muted:#64748b; --canvas-bg:#ffffff; --grid:#dbe3ee; --card-shadow:0 6px 18px rgba(2,6,23,.08); }
+    *{ box-sizing:border-box }
+    body{ font-family:system-ui,-apple-system,Segoe UI,Roboto,'Noto Sans JP',sans-serif; margin:0; background:#eef2f7; color:var(--text) }
+    .app{ display:flex; height:100svh; gap:12px; padding:12px }
+    .sidebar{ width:380px; background:linear-gradient(180deg,var(--panel-bg),#ffffff); border-radius:12px; padding:12px; box-shadow:var(--card-shadow); position:relative; z-index:2; overflow:auto }
+    .canvas-wrap{ flex:1; display:flex; flex-direction:column; gap:8px; min-width:0; position:relative }
+    .toolbar{ display:flex; gap:6px; flex-wrap:wrap }
+    button{ background:var(--toolbar-bg); border:1px solid rgba(15,23,42,.08); color:var(--text); padding:8px 10px; border-radius:8px; cursor:pointer }
+    button:hover{ filter:brightness(0.98) }
+    button.active{ outline:2px solid var(--accent); box-shadow:0 6px 12px rgba(16,185,129,.15) }
+    #detect{ background:#2563eb; color:#fff; border-color:rgba(37,99,235,.4) }
+    #detect:hover{ filter:brightness(1.05) }
+    #completeMap{ background:#f97316; color:#fff; border-color:rgba(249,115,22,.4) }
+    #completeMap:hover{ filter:brightness(1.05) }
+    label{ display:block; margin-top:8px; font-size:13px; color:var(--muted) }
+    input[type=number]{ width:100%; padding:6px; border-radius:6px; border:1px solid rgba(15,23,42,.1); background:#fff; color:var(--text) }
+    input[type=checkbox]{ transform: translateY(1px) }
+    canvas{ background:var(--canvas-bg); border-radius:8px; box-shadow:0 8px 30px rgba(2,6,23,.08); touch-action:none; max-width:100%; height:auto; cursor:crosshair }
+    .legend{ margin-top:12px; font-size:13px }
+    .row{ display:flex; gap:6px; align-items:center }
+    .small{ font-size:13px; color:var(--muted) }
+    .footer{ display:flex; gap:8px; align-items:center; flex-wrap:wrap }
+    .status{ display:flex; gap:12px; align-items:center }
+    .ctxmenu{ position:fixed; background:#fff; border:1px solid rgba(0,0,0,.1); border-radius:8px; box-shadow:0 8px 30px rgba(2,6,23,.12); padding:6px; display:none; z-index:9999 }
+    .ctxmenu button{ width:100%; text-align:left; display:block; padding:8px 10px; background:#fff; border:0; cursor:pointer }
+    .kbd{ font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; font-size:12px; background:#e2e8f0; padding:1px 6px; border-radius:6px }
+
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="sidebar">
+      <h2 style="margin:0 0 8px 0">2D フロアマップエディタ</h2>
+
+      <div class="toolbar" id="tools">
+        <button data-tool="wall" class="active">壁(ペン)</button>
+        <button data-tool="line">壁(直線)</button>
+        <button data-tool="rect">壁(矩形)</button>
+        <button data-tool="erase">消しゴム</button>
+        <button data-tool="erase-rect">消しゴム(範囲)</button>
+        <button data-tool="door">ドア</button>
+        <button data-tool="corridor">廊下</button>
+        <button data-tool="corr-rect">廊下(矩形)</button>
+        <button data-tool="label">ラベル</button>
+        <button data-tool="fill">塗りつぶし</button>
+        <button data-tool="select">選択</button>
+      </div>
+
+      <label>セルサイズ (px)  <span class="small">（ホイール/Shift×5）</span></label>
+      <input id="cellSize" type="number" min="8" max="128" value="18" />
+
+      <label>グリッド (列 x 行)  <span class="small">（ホイール/Shift×5、Enter適用）</span></label>
+      <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
+        <input id="cols" type="number" min="5" max="200" value="60" />
+        <input id="rows" type="number" min="5" max="200" value="40" />
+        <button id="resize">リサイズ</button>
+      </div>
+
+      <label>操作設定</label>
+      <div class="row small">
+        <input id="drawPreview" type="checkbox" checked /> <span>ドラッグで描画</span>
+      </div>
+      <div class="row small">
+        <input id="snap" type="checkbox" checked /> <span>直線/矩形は45°スナップ</span>
+      </div>
+
+      <div style="margin-top:12px;display:flex;gap:6px;flex-wrap:wrap">
+        <button id="detect">部屋/廊下を検出</button>
+        <button id="completeMap" class="cta">フロアマップ作成完了</button>
+      </div>
+
+      <div style="margin-top:12px;display:flex;gap:6px;flex-wrap:wrap">
+        <button id="clear">クリア</button>
+        <button id="undo">元に戻す</button>
+        <button id="redo">やり直し</button>
+        <button id="exportPNG">PNGを書き出し</button>
+        <button id="saveJSON">JSONを保存</button>
+        <button id="loadJSON">JSONを読み込み</button>
+        <input id="fileInput" type="file" accept="application/json" style="display:none" />
+      </div>
+
+      <label style="margin-top:12px">選択操作</label>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <button id="selCopy">コピー</button>
+        <button id="selCut">カット</button>
+        <button id="selPaste">貼り付け</button>
+        <button id="selDelete">削除</button>
+        <button id="selDuplicate">複製</button>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
+        <button id="selRotL">回転 ⟲90°</button>
+        <button id="selRotR">回転 ⟳90°</button>
+        <button id="selRot180">回転 180°</button>
+        <button id="selFlipH">反転 水平</button>
+        <button id="selFlipV">反転 垂直</button>
+      </div>
+
+      <div class="legend">
+        <div class="row"><div style="width:18px;height:18px;background:#ffffff;border:2px solid #9fb2c9;border-radius:3px;margin-right:8px"></div><div class="small">空き</div></div>
+        <div class="row"><div style="width:18px;height:18px;background:#cbd5e1;margin-right:8px;border-radius:3px"></div><div class="small">壁</div></div>
+        <div class="row"><div style="width:18px;height:18px;background:#f59e0b;margin-right:8px;border-radius:3px"></div><div class="small">ドア</div></div>
+        <div class="row"><div style="width:18px;height:18px;background:#94a3b8;margin-right:8px;border-radius:3px"></div><div class="small">廊下</div></div>
+        <div class="row"><div style="width:18px;height:18px;background:#06b6d4;margin-right:8px;border-radius:3px"></div><div class="small">ラベル</div></div>
+        <div class="row"><div style="width:18px;height:18px;background:#a7f3d0;margin-right:8px;border-radius:3px"></div><div class="small">部屋（検出結果）</div></div>
+        <div class="row"><div style="width:18px;height:18px;background:#fde68a;margin-right:8px;border-radius:3px"></div><div class="small">廊下（検出結果）</div></div>
+      </div>
+
+      <div style="margin-top:12px" class="small">
+        保存形式: JSON {cols, rows, cellSize, cells:[...] }。PNGはグリッド込み。
+      </div>
+    </div>
+
+    <div class="canvas-wrap">
+      <div style="display:flex;gap:8px;align-items:center;justify-content:space-between">
+        <div class="small">クリック/ドラッグで描画。右ドラッグ: パン。<span class="kbd">Ctrl+ホイール</span>: ズーム。</div>
+        <div class="small">現在のツール: <strong id="currentTool">壁(ペン)</strong></div>
+      </div>
+
+      <canvas id="canvas" width="1080" height="720"></canvas>
+      <div class="footer small">
+        <div>左クリック: 描画 / 右クリック: 選択時メニュー / 右ドラッグ: パン / <span class="kbd">Ctrl+ホイール</span>: ズーム</div>
+        <div id="hint" style="margin-left:auto" class="status">
+          <span id="statusTool">Tool: 壁(ペン)</span>
+          <span id="statusPos">Pos: -,-</span>
+        </div>
+      </div>
+      <div id="ctxmenu" class="ctxmenu">
+        <button data-act="copy">コピー (Ctrl+C)</button>
+        <button data-act="cut">カット (Ctrl+X)</button>
+        <button data-act="paste">貼り付け (Ctrl+V)</button>
+        <hr/>
+        <button data-act="rotL">回転 ⟲90° (Q)</button>
+        <button data-act="rotR">回転 ⟳90° (E)</button>
+        <button data-act="rot180">回転 180°</button>
+        <button data-act="flipH">反転 水平 (H)</button>
+        <button data-act="flipV">反転 垂直 (V)</button>
+        <hr/>
+        <button data-act="delete">削除 (Del)</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  // ======================== 基本セットアップ ========================
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+
+  const colsInput = document.getElementById('cols');
+  const rowsInput = document.getElementById('rows');
+  const sizeInput = document.getElementById('cellSize');
+
+  // ズームUI（数値入力のみ）
+
+  let cols = parseInt(colsInput.value,10) || 60;
+  let rows = parseInt(rowsInput.value,10) || 40;
+  let cellSize = parseInt(sizeInput.value,10) || 18;
+
+  const TOOL = {WALL:'wall', LINE:'line', RECT:'rect', ERASE:'erase', ERASE_RECT:'erase-rect', DOOR:'door', CORRIDOR:'corridor', CORR_RECT:'corr-rect', LABEL:'label', FILL:'fill', SELECT:'select'};
+  let currentTool = TOOL.WALL;
+  let drawOnDrag = true; // ドラッグで連続描画
+  let snap45 = true;     // 直線/矩形の45°スナップ
+
+  // ビュー（ズーム/パン）
+  let viewScale=1; let viewOffset={x:0,y:0};
+  let isPanning=false; let panStart={x:0,y:0}; let viewStart={x:0,y:0};
+
+  // 入力状態
+  let lineStart = null; // {x,y}
+  let rectStart = null; // {x,y}
+  let selectStart = null; // {x,y}
+  let selection = null;   // {x1,y1,x2,y2}
+  let mousePos=null;
+
+  // クリップボード
+  let clipboard = null;   // {w,h,data}
+  let pastePending = false;
+
+  // 選択ドラッグ移動
+  let draggingSelection=false; let dragOrigin=null; let dragDelta={dx:0,dy:0};
+
+  // 履歴
+  let history = []; let redoStack = [];
+
+  // セル: 0空, 1壁, 2ドア, 4廊下, {type:'label'|'room'|'corridor', ...}
+  let cells = createEmpty(cols,rows);
+
+  function createEmpty(c,r){ const a=new Array(r); for(let y=0;y<r;y++){ a[y]=new Array(c).fill(0) } return a; }
+  function snapshot(){ return JSON.parse(JSON.stringify({cols,rows,cellSize,cells})); }
+  function restore(s){ cols=s.cols; rows=s.rows; cellSize=s.cellSize; cells=s.cells; colsInput.value=cols; rowsInput.value=rows; sizeInput.value=cellSize; adjustCanvas(); draw(); }
+  function pushHistory(){ history.push(snapshot()); if(history.length>120) history.shift(); redoStack=[]; }
+
+  function resizeGrid(newCols,newRows,newCellSize){
+    pushHistory();
+    const newCells = createEmpty(newCols,newRows);
+    for(let y=0;y<Math.min(rows,newRows);y++){
+      for(let x=0;x<Math.min(cols,newCols);x++) newCells[y][x]=cells[y][x];
+    }
+    cols=newCols; rows=newRows; cellSize=newCellSize; cells=newCells;
+    colsInput.value=cols; rowsInput.value=rows; sizeInput.value=cellSize;
+    adjustCanvas(); draw();
+  }
+  function resizeGridQuick(newCols,newRows,newCellSize){
+    const newCells = createEmpty(newCols,newRows);
+    for(let y=0;y<Math.min(rows,newRows);y++){
+      for(let x=0;x<Math.min(cols,newCols);x++) newCells[y][x]=cells[y][x];
+    }
+    cols=newCols; rows=newRows; cellSize=newCellSize; cells=newCells;
+    colsInput.value=cols; rowsInput.value=rows; sizeInput.value=cellSize;
+    adjustCanvas(); draw();
+  }
+
+  function adjustCanvas(){ canvas.width=cols*cellSize; canvas.height=rows*cellSize; }
+
+  // ======================== 座標/描画 ========================
+  function coordFromEvent(e){
+    const rect = canvas.getBoundingClientRect();
+    const cx=(e.clientX-rect.left)*(canvas.width/rect.width);
+    const cy=(e.clientY-rect.top)*(canvas.height/rect.height);
+    const wx=(cx - viewOffset.x)/viewScale;
+    const wy=(cy - viewOffset.y)/viewScale;
+    return { x:Math.floor(wx/cellSize), y:Math.floor(wy/cellSize) };
+  }
+
+  function draw(){
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    ctx.save();
+    ctx.translate(viewOffset.x, viewOffset.y);
+    ctx.scale(viewScale, viewScale);
+
+    // 背景
+    ctx.fillStyle=getComputedStyle(document.documentElement).getPropertyValue('--canvas-bg').trim() || '#ffffff';
+    ctx.fillRect(0,0,cols*cellSize,rows*cellSize);
+
+    // セル
+    for(let y=0;y<rows;y++){
+      for(let x=0;x<cols;x++){
+        const v=cells[y][x];
+        if(v===1){ ctx.fillStyle='#cbd5e1'; ctx.fillRect(x*cellSize,y*cellSize,cellSize,cellSize); }
+        else if(v===2){ ctx.fillStyle='#f59e0b'; ctx.fillRect(x*cellSize,y*cellSize,cellSize,cellSize); }
+        else if(v===4){ ctx.fillStyle='#94a3b8'; ctx.fillRect(x*cellSize,y*cellSize,cellSize,cellSize); }
+        else if(typeof v==='object' && v){
+          if(v.type==='label'){
+            ctx.fillStyle='#06b6d4'; ctx.fillRect(x*cellSize,y*cellSize,cellSize,cellSize);
+            ctx.fillStyle='#0f172a'; ctx.font=Math.max(10,cellSize/4)+'px sans-serif';
+            ctx.textAlign='center'; ctx.textBaseline='middle';
+            ctx.fillText(v.text||'L', x*cellSize+cellSize/2, y*cellSize+cellSize/2);
+          }else if(v.type==='room'){
+            ctx.fillStyle='#a7f3d0'; ctx.fillRect(x*cellSize,y*cellSize,cellSize,cellSize);
+          }else if(v.type==='corridor'){
+            ctx.fillStyle='#fde68a'; ctx.fillRect(x*cellSize,y*cellSize,cellSize,cellSize);
+          }
+        }
+      }
+    }
+
+    // 線/矩形プレビュー
+    if(lineStart && mousePos){ const a=lineStart; const b=snapped(a.x,a.y,mousePos.x,mousePos.y); previewLine(a.x,a.y,b.x,b.y); }
+    if(rectStart && mousePos){ const a=rectStart; const b=snappedRect(a.x,a.y,mousePos.x,mousePos.y); previewRect(a.x,a.y,b.x,b.y); }
+
+    // 貼り付けプレビュー
+    if(pastePending && clipboard && mousePos){
+      const {ox, oy} = getPasteOrigin(mousePos.x, mousePos.y, clipboard);
+      ctx.globalAlpha = 0.4;
+      for(let yy=0; yy<clipboard.h; yy++){
+        for(let xx=0; xx<clipboard.w; xx++){
+          const v = clipboard.data[yy][xx]; if(v===0) continue;
+          const tx=ox+xx, ty=oy+yy;
+          if(tx<0||ty<0||tx>=cols||ty>=rows) continue;
+          const px=tx*cellSize, py=ty*cellSize;
+          if(typeof v==='object' && v){
+            if(v.type==='label') ctx.fillStyle='#06b6d4';
+            else if(v.type==='room') ctx.fillStyle='#a7f3d0';
+            else if(v.type==='corridor') ctx.fillStyle='#fde68a';
+          } else { ctx.fillStyle = v===1?'#cbd5e1': v===2?'#f59e0b':'#94a3b8'; }
+          ctx.fillRect(px,py,cellSize,cellSize);
+        }
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    // 選択枠
+    if(selection){
+      const r=selection; const minX=Math.min(r.x1,r.x2)+(draggingSelection?dragDelta.dx:0); const minY=Math.min(r.y1,r.y2)+(draggingSelection?dragDelta.dy:0); const maxX=Math.max(r.x1,r.x2)+(draggingSelection?dragDelta.dx:0); const maxY=Math.max(r.y1,r.y2)+(draggingSelection?dragDelta.dy:0);
+      ctx.save(); ctx.setLineDash([6,3]); ctx.lineWidth=2; ctx.strokeStyle='#0ea5e9';
+      ctx.strokeRect(minX*cellSize+0.5, minY*cellSize+0.5, (maxX-minX+1)*cellSize, (maxY-minY+1)*cellSize);
+      ctx.restore();
+    }
+
+    // グリッド
+    ctx.strokeStyle=getComputedStyle(document.documentElement).getPropertyValue('--grid').trim() || 'rgba(15,23,42,0.08)';
+    ctx.lineWidth=1;
+    for(let x=0;x<=cols;x++){ ctx.beginPath(); ctx.moveTo(x*cellSize+0.5,0); ctx.lineTo(x*cellSize+0.5,rows*cellSize); ctx.stroke(); }
+    for(let y=0;y<=rows;y++){ ctx.beginPath(); ctx.moveTo(0,y*cellSize+0.5); ctx.lineTo(cols*cellSize,y*cellSize+0.5); ctx.stroke(); }
+
+    ctx.restore();
+
+    // ステータス＆ズームUI同期
+    document.getElementById('statusTool').textContent = 'Tool: ' + document.getElementById('currentTool').textContent;
+    if(mousePos){ document.getElementById('statusPos').textContent = `Pos: ${mousePos.x},${mousePos.y}`; }
+  }
+
+  function previewLine(x1,y1,x2,y2){ const pts = bresenham(x1,y1,x2,y2); ctx.fillStyle='rgba(16,185,129,0.35)'; for(const p of pts) ctx.fillRect(p.x*cellSize,p.y*cellSize,cellSize,cellSize); }
+  function previewRect(x1,y1,x2,y2){ const minX=Math.min(x1,x2), maxX=Math.max(x1,x2), minY=Math.min(y1,y2), maxY=Math.max(y1,y2); ctx.fillStyle='rgba(16,185,129,0.25)'; for(let x=minX;x<=maxX;x++){ ctx.fillRect(x*cellSize,minY*cellSize,cellSize,cellSize); ctx.fillRect(x*cellSize,maxY*cellSize,cellSize,cellSize);} for(let y=minY;y<=maxY;y++){ ctx.fillRect(minX*cellSize,y*cellSize,cellSize,cellSize); ctx.fillRect(maxX*cellSize,y*cellSize,cellSize,cellSize);} }
+
+  function snapped(x1,y1,x2,y2){ if(!snap45) return {x:x2,y:y2}; const dx=x2-x1, dy=y2-y1; if(dx===0&&dy===0) return {x:x2,y:y2}; const adx=Math.abs(dx), ady=Math.abs(dy); if(ady<adx/2) return {x:x2,y:y1}; if(adx<ady/2) return {x:x1,y:y2}; const sdx=dx>0?1:-1, sdy=dy>0?1:-1; const len=Math.min(adx,ady); return {x:x1+sdx*len,y:y1+sdy*len}; }
+  function snappedRect(x1,y1,x2,y2){ if(!snap45) return {x:x2,y:y2}; const w=Math.abs(x2-x1), h=Math.abs(y2-y1); if(Math.abs(w-h)<=1){ const sx=x2>=x1?1:-1, sy=y2>=y1?1:-1, m=Math.max(w,h); return {x:x1+sx*m, y:y1+sy*m}; } return {x:x2,y:y2}; }
+
+  // ======================== 描画アルゴ ========================
+  function bresenham(x0,y0,x1,y1){ const pts=[]; const dx=Math.abs(x1-x0), dy=Math.abs(y1-y0); const sx=x0<x1?1:-1, sy=y0<y1?1:-1; let err=dx-dy, x=x0, y=y0; while(true){ pts.push({x,y}); if(x===x1&&y===y1) break; const e2=2*err; if(e2>-dy){ err-=dy; x+=sx; } if(e2<dx){ err+=dx; y+=sy; } } return pts; }
+  function drawLineCells(x0,y0,x1,y1,val){ for(const p of bresenham(x0,y0,x1,y1)){ if(p.x>=0&&p.y>=0&&p.x<cols&&p.y<rows) cells[p.y][p.x]=val; } }
+  function drawRectCells(x1,y1,x2,y2,val){ const minX=Math.min(x1,x2), maxX=Math.max(x1,x2), minY=Math.min(y1,y2), maxY=Math.max(y1,y2); for(let x=minX;x<=maxX;x++){ if(minY>=0&&minY<rows) cells[minY][x]=val; if(maxY>=0&&maxY<rows) cells[maxY][x]=val; } for(let y=minY;y<=maxY;y++){ if(minX>=0&&minX<cols) cells[y][minX]=val; if(maxX>=0&&maxX<cols) cells[y][maxX]=val; } }
+  function fillRectCells(x1,y1,x2,y2,val){ const minX=Math.min(x1,x2), maxX=Math.max(x1,x2), minY=Math.min(y1,y2), maxY=Math.max(y1,y2); for(let y=minY;y<=maxY;y++){ for(let x=minX;x<=maxX;x++){ if(x>=0&&y>=0&&x<cols&&y<rows) cells[y][x]=val; } } }
+  function placeDoor(x,y){ if(x>=0&&y>=0&&x<cols&&y<rows) cells[y][x]=2; }
+
+  function floodFill(sx,sy,target,apply){ const visited=new Set(), k=(x,y)=>`${x},${y}`; const stack=[{x:sx,y:sy}]; while(stack.length){ const p=stack.pop(); const kk=k(p.x,p.y); if(visited.has(kk)) continue; visited.add(kk); if(p.x<0||p.y<0||p.x>=cols||p.y>=rows) continue; const v=cells[p.y][p.x]; const same=(typeof v==='object'||typeof target==='object')?JSON.stringify(v)===JSON.stringify(target):v===target; if(!same) continue; apply(p); stack.push({x:p.x+1,y:p.y}); stack.push({x:p.x-1,y:p.y}); stack.push({x:p.x,y:p.y+1}); stack.push({x:p.x,y:p.y-1}); } }
+
+  // ======================== 選択ユーティリティ ========================
+  function normalizeRect(a,b){ const x1=Math.max(0, Math.min(a.x,b.x)), y1=Math.max(0, Math.min(a.y,b.y)); const x2=Math.min(cols-1, Math.max(a.x,b.x)), y2=Math.min(rows-1, Math.max(a.y,b.y)); return {x1,y1,x2,y2}; }
+  function hasSelection(){ return !!selection && selection.x2>=selection.x1 && selection.y2>=selection.y1; }
+  function deepCloneCell(v){ return (typeof v==='object' && v)? JSON.parse(JSON.stringify(v)) : v; }
+  function getSelectionData(){ if(!hasSelection()) return null; const {x1,y1,x2,y2}=selection; const w=x2-x1+1, h=y2-y1+1; const data=Array.from({length:h}, (_,yy)=>Array.from({length:w},(_,xx)=>deepCloneCell(cells[y1+yy][x1+xx]))); return {w,h,data}; }
+  function clearSelectionArea(){ if(!hasSelection()) return; const {x1,y1,x2,y2}=selection; for(let y=y1;y<=y2;y++){ for(let x=x1;x<=x2;x++){ cells[y][x]=0; } } }
+  function placeClipboardAt(ox,oy){ if(!clipboard) return; for(let y=0;y<clipboard.h;y++){ for(let x=0;x<clipboard.w;x++){ const v=clipboard.data[y][x]; if(v===0) continue; const tx=ox+x, ty=oy+y; if(tx<0||ty<0||tx>=cols||ty>=rows) continue; cells[ty][tx]=deepCloneCell(v); } } draw(); }
+  function getPasteOrigin(cx, cy, data){
+    if(!data) return {ox:cx, oy:cy};
+    let ox = cx - Math.floor(data.w/2);
+    let oy = cy - Math.floor(data.h/2);
+    const maxOx = Math.max(0, cols - data.w);
+    const maxOy = Math.max(0, rows - data.h);
+    ox = clamp(ox, 0, maxOx);
+    oy = clamp(oy, 0, maxOy);
+    return {ox, oy};
+  }
+  function clampSelectionShift(dx,dy){
+    if(!selection) return {dx:0,dy:0};
+    const minDx = -selection.x1;
+    const maxDx = cols-1-selection.x2;
+    const minDy = -selection.y1;
+    const maxDy = rows-1-selection.y2;
+    return {dx: clamp(dx, minDx, maxDx), dy: clamp(dy, minDy, maxDy)};
+  }
+
+  // ======================== 入力処理 ========================
+  let isDrawing=false; let isHistoryPushed=false;
+  function beginHistory(){ if(!isHistoryPushed){ pushHistory(); isHistoryPushed=true; } }
+
+  function applyToolAt(x,y,tool){ if(x<0||y<0||x>=cols||y>=rows) return; beginHistory(); if(tool===TOOL.WALL) cells[y][x]=1; else if(tool===TOOL.ERASE) cells[y][x]=0; else if(tool===TOOL.DOOR) cells[y][x]=2; else if(tool===TOOL.CORRIDOR) cells[y][x]=4; else if(tool===TOOL.LABEL){ const existing=cells[y][x]; const prev=(existing&&existing.type==='label')?existing.text:''; const txt=prompt('ラベルを入力（空欄で削除）:',prev); if(txt===null) return; cells[y][x]=txt.trim()===''?0:{type:'label',text:txt}; } else if(tool===TOOL.FILL){ const target=cells[y][x]; floodFill(x,y,target,(p)=>{ cells[p.y][p.x]=1; }); } }
+
+  // マウスダウン
+  canvas.addEventListener('mousedown', (e)=>{
+    e.preventDefault();
+
+    // 右ドラッグでパン
+    if(e.button===2){ isPanning=true; panStart={x:e.clientX,y:e.clientY}; viewStart={...viewOffset}; canvas.style.cursor='grabbing'; return; }
+
+    const {x,y}=coordFromEvent(e); mousePos={x,y};
+    isDrawing=true; isHistoryPushed=false;
+
+    if(pastePending && clipboard){
+      beginHistory();
+      const {ox, oy}=getPasteOrigin(x, y, clipboard);
+      placeClipboardAt(ox, oy);
+      pastePending=false;
+      draw();
+      return;
+    }
+
+    if(currentTool===TOOL.LINE){ lineStart={x,y}; }
+    else if(currentTool===TOOL.RECT || currentTool===TOOL.CORR_RECT || currentTool===TOOL.ERASE_RECT){ rectStart={x,y}; }
+    else if(currentTool===TOOL.SELECT){
+      if(selection && x>=selection.x1 && x<=selection.x2 && y>=selection.y1 && y<=selection.y2){ draggingSelection=true; dragOrigin={x,y}; dragDelta={dx:0,dy:0}; draw(); }
+      else { selectStart={x,y}; selection=null; draw(); }
+    }
+    else { applyToolAt(x,y,currentTool); draw(); }
+  });
+
+  // マウスムーブ
+  canvas.addEventListener('mousemove', (e)=>{
+    const p=coordFromEvent(e); mousePos=p;
+
+    // パン中
+    if(isPanning){ const dx=e.clientX-panStart.x, dy=e.clientY-panStart.y; viewOffset={x:viewStart.x+dx, y:viewStart.y+dy}; draw(); return; }
+
+    if(currentTool===TOOL.SELECT){ if(draggingSelection){ const shift=clampSelectionShift(p.x-dragOrigin.x, p.y-dragOrigin.y); dragDelta=shift; draw(); return; } if(selectStart){ selection = normalizeRect(selectStart, p); draw(); return; } }
+    if(!isDrawing){ draw(); return; }
+    if(!drawOnDrag){ draw(); return; }
+    if(currentTool===TOOL.LINE || currentTool===TOOL.RECT || currentTool===TOOL.CORR_RECT || currentTool===TOOL.ERASE_RECT){ draw(); return; }
+    applyToolAt(p.x,p.y,currentTool); draw();
+  });
+
+  // マウスアップ
+  window.addEventListener('mouseup', ()=>{
+    if(isPanning){ isPanning=false; canvas.style.cursor='default'; return; }
+
+    if(currentTool===TOOL.SELECT){
+      if(draggingSelection){
+        const data=getSelectionData(); if(data){ beginHistory(); clearSelectionArea(); const shift=clampSelectionShift(dragDelta.dx, dragDelta.dy); const nx=selection.x1+shift.dx, ny=selection.y1+shift.dy; clipboard=data; placeClipboardAt(nx,ny); selection={x1:nx,y1:ny,x2:nx+data.w-1,y2:ny+data.h-1}; }
+        draggingSelection=false; dragDelta={dx:0,dy:0}; draw(); return;
+      }
+      if(selectStart && mousePos){ selection = normalizeRect(selectStart, mousePos); selectStart=null; isDrawing=false; isHistoryPushed=false; draw(); return; }
+    }
+
+    isDrawing=false; isHistoryPushed=false;
+    if(lineStart && mousePos && currentTool===TOOL.LINE){ const a=lineStart; const b=snapped(a.x,a.y,mousePos.x,mousePos.y); beginHistory(); drawLineCells(a.x,a.y,b.x,b.y,1); lineStart=null; draw(); }
+    if(rectStart && mousePos && currentTool===TOOL.RECT){ const a=rectStart; const b=snappedRect(a.x,a.y,mousePos.x,mousePos.y); beginHistory(); drawRectCells(a.x,a.y,b.x,b.y,1); rectStart=null; draw(); }
+    if(rectStart && mousePos && currentTool===TOOL.CORR_RECT){ const a=rectStart; const b=snappedRect(a.x,a.y,mousePos.x,mousePos.y); beginHistory(); fillRectCells(a.x,a.y,b.x,b.y,4); rectStart=null; draw(); }
+    if(rectStart && mousePos && currentTool===TOOL.ERASE_RECT){ const a=rectStart; const b=snappedRect(a.x,a.y,mousePos.x,mousePos.y); beginHistory(); fillRectCells(a.x,a.y,b.x,b.y,0); rectStart=null; draw(); }
+  });
+
+  // 右クリックメニュー（選択時のみ・パン中は抑止）
+  canvas.addEventListener('contextmenu', (e)=>{
+    if(isPanning){ e.preventDefault(); return; }
+    if(selection){ openCtxMenu(e); e.preventDefault(); return; }
+    e.preventDefault();
+  });
+
+  // ===== ズーム（Ctrl+ホイールのみ） =====
+  canvas.addEventListener('wheel', (e)=>{
+    if(!e.ctrlKey && !e.metaKey) return;
+    e.preventDefault();
+    const rect=canvas.getBoundingClientRect();
+    const mx=(e.clientX-rect.left)*(canvas.width/rect.width);
+    const my=(e.clientY-rect.top)*(canvas.height/rect.height);
+    const wx=(mx - viewOffset.x)/viewScale; const wy=(my - viewOffset.y)/viewScale;
+    const scaleDelta = e.deltaY<0 ? 1.1 : 0.9;
+    const newScale = clamp(viewScale*scaleDelta, 0.5, 3);
+    viewOffset.x = mx - wx*newScale; viewOffset.y = my - wy*newScale; viewScale = newScale; draw();
+  }, {passive:false});
+
+  // ===== ズーム（入力のみ） =====
+  function clamp(v,min,max){ return Math.max(min, Math.min(max, v)); }
+  function setZoomByCenter(newScale){
+    const rect=canvas.getBoundingClientRect();
+    const mx=(rect.left+rect.width/2 - rect.left)*(canvas.width/rect.width);
+    const my=(rect.top+rect.height/2 - rect.top)*(canvas.height/rect.height);
+    const wx=(mx - viewOffset.x)/viewScale; const wy=(my - viewOffset.y)/viewScale;
+    const clamped = clamp(newScale, 0.5, 3);
+    viewOffset.x = mx - wx*clamped; viewOffset.y = my - wy*clamped; viewScale = clamped; draw();
+  }
+
+  // ======================== 検出：部屋 & 廊下 ========================
+  function isWallOrDoor(v){ return v===1 || v===2; }
+  const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+  const key = (x,y)=>`${x},${y}`;
+  function clearDetected(){
+    for(let y=0;y<rows;y++){
+      for(let x=0;x<cols;x++){
+        const v=cells[y][x];
+        if(typeof v!=='object' || !v) continue;
+        if(v.type==='room') cells[y][x]=0;
+        else if(v.type==='corridor') cells[y][x]=4;
+      }
+    }
+  }
+
+  function floodInterior(seed, acceptFn){ const region=[]; const seen=new Set(); const stack=[seed]; const borderDoors=new Set(); const dk=(x,y)=>`D:${x},${y}`; while(stack.length){ const p=stack.pop(); const id=key(p.x,p.y); if(seen.has(id)) continue; if(p.x<0||p.y<0||p.x>=cols||p.y>=rows) continue; const v=cells[p.y][p.x]; if(!acceptFn(v)) continue; seen.add(id); region.push({x:p.x,y:p.y}); for(const [dx,dy] of dirs){ const nx=p.x+dx, ny=p.y+dy; if(nx<0||ny<0||nx>=cols||ny>=rows) continue; const nv=cells[ny][nx]; if(acceptFn(nv)) stack.push({x:nx,y:ny}); else if(nv===2) borderDoors.add(dk(nx,ny)); } } return {region, doors:[...borderDoors].map(s=>{const [x,y]=s.slice(2).split(','); return {x:+x,y:+y};})}; }
+
+  function validateRectClosure(region, interiorAccept, minDoors){
+    if(region.length===0) return null;
+    let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+    for(const p of region){ if(p.x<minX)minX=p.x; if(p.x>maxX)maxX=p.x; if(p.y<minY)minY=p.y; if(p.y>maxY)maxY=p.y; }
+    const w=maxX-minX+1, h=maxY-minY+1;
+    if(region.length!==w*h) return null;
+    if(w<2 || h<2) return null;
+    const ring = (()=>{
+      const topY=minY-1, bottomY=maxY+1, leftX=minX-1, rightX=maxX+1;
+      if(topY<0||bottomY>=rows||leftX<0||rightX>=cols) return null;
+      let doorCount=0;
+      for(let x=minX; x<=maxX; x++){
+        const t=cells[topY][x], b=cells[bottomY][x];
+        if(!isWallOrDoor(t) || !isWallOrDoor(b)) return null;
+        if(t===2) doorCount++; if(b===2) doorCount++;
+      }
+      for(let y=minY; y<=maxY; y++){
+        const l=cells[y][leftX], r=cells[y][rightX];
+        if(!isWallOrDoor(l) || !isWallOrDoor(r)) return null;
+        if(l===2) doorCount++; if(r===2) doorCount++;
+      }
+      if(doorCount < (minDoors??1)) return null;
+      for(let y=minY;y<=maxY;y++){ for(let x=minX;x<=maxX;x++){ if(!interiorAccept(cells[y][x])) return null; } }
+      return {minX,minY,maxX,maxY,doorCount};
+    })();
+    if(ring) return ring;
+
+    const border = (()=>{
+      let doorCount=0;
+      for(let x=minX; x<=maxX; x++){
+        const top=cells[minY][x], bottom=cells[maxY][x];
+        if(!isWallOrDoor(top) || !isWallOrDoor(bottom)) return null;
+        if(top===2) doorCount++; if(bottom===2) doorCount++;
+      }
+      for(let y=minY; y<=maxY; y++){
+        const left=cells[y][minX], right=cells[y][maxX];
+        if(!isWallOrDoor(left) || !isWallOrDoor(right)) return null;
+        if(left===2) doorCount++; if(right===2) doorCount++;
+      }
+      if(doorCount < (minDoors??1)) return null;
+      for(let y=minY+1; y<=maxY-1; y++){
+        for(let x=minX+1; x<=maxX-1; x++){
+          if(!interiorAccept(cells[y][x])) return null;
+        }
+      }
+      return {minX,minY,maxX,maxY,doorCount};
+    })();
+    return border;
+  }
+
+  function detectRoomsAndCorridors(){
+    clearDetected();
+    const rooms=[], corridors=[];
+    const visitedInterior=new Set();
+    const idKey=(p)=>`${p.x},${p.y}`;
+
+    function isRoomInterior(v){ return v===0 || (typeof v==='object' && v && v.type==='label'); }
+    for(let y=0;y<rows;y++) for(let x=0;x<cols;x++){
+      if(!isRoomInterior(cells[y][x])) continue;
+      let nearDoor=false;
+      for(const [dx,dy] of dirs){
+        const nx=x+dx, ny=y+dy;
+        if(nx<0||ny<0||nx>=cols||ny>=rows) continue;
+        if(cells[ny][nx]===2){ nearDoor=true; break; }
+      }
+      if(!nearDoor) continue;
+      const id=idKey({x,y}); if(visitedInterior.has(id)) continue;
+      const {region}=floodInterior({x,y}, isRoomInterior);
+      if(region.length===0) continue;
+      region.forEach(p=>visitedInterior.add(idKey(p)));
+      const rect=validateRectClosure(region, isRoomInterior, 1);
+      if(!rect) continue;
+
+      const idRoom=rooms.length+1;
+      const labels=[];
+      for(let yy=rect.minY; yy<=rect.maxY; yy++){
+        for(let xx=rect.minX; xx<=rect.maxX; xx++){
+          const v=cells[yy][xx];
+          if(typeof v==='object' && v && v.type==='label'){
+            labels.push({x:xx,y:yy,text:v.text});
+          } else {
+            cells[yy][xx]={type:'room', roomId:idRoom};
+          }
+        }
+      }
+      rooms.push({
+        id:idRoom, type:'room',
+        bounds:{x:rect.minX,y:rect.minY,width:rect.maxX-rect.minX+1,height:rect.maxY-rect.minY+1},
+        doorCount:rect.doorCount, labels
+      });
+    }
+
+    function isCorrInterior(v){
+      if(v===4) return true;
+      if(typeof v==='object' && v){
+        if(v.type==='label') return true;
+        if(v.type==='corridor') return true;
+      }
+      return false;
+    }
+    const visitedCorr=new Set();
+    for(let y=0;y<rows;y++) for(let x=0;x<cols;x++){
+      if(!isCorrInterior(cells[y][x])) continue;
+      const id=idKey({x,y}); if(visitedCorr.has(id)) continue;
+      const {region}=floodInterior({x,y}, isCorrInterior);
+      if(region.length===0) continue;
+      region.forEach(p=>visitedCorr.add(idKey(p)));
+      let minX=Infinity, maxX=-Infinity, minY=Infinity, maxY=-Infinity;
+      for(const p of region){
+        if(p.x<minX) minX=p.x;
+        if(p.x>maxX) maxX=p.x;
+        if(p.y<minY) minY=p.y;
+        if(p.y>maxY) maxY=p.y;
+      }
+      const idCor=corridors.length+1;
+      for(const p of region){
+        const v=cells[p.y][p.x];
+        if(!(typeof v==='object' && v && v.type==='label')){
+          cells[p.y][p.x]={type:'corridor', corridorId:idCor};
+        }
+      }
+      corridors.push({
+        id:idCor, type:'corridor',
+        bounds:{x:minX,y:minY,width:maxX-minX+1,height:maxY-minY+1},
+        size:region.length
+      });
+    }
+    return {rooms, corridors};
+  }
+
+  // ======================== UIイベント ========================
+  document.getElementById('tools').addEventListener('click', (e)=>{
+    const b = e.target.closest('button'); if(!b) return;
+    [...document.querySelectorAll('#tools button')].forEach(btn=>btn.classList.remove('active'));
+    b.classList.add('active');
+    currentTool = b.getAttribute('data-tool');
+    document.getElementById('currentTool').textContent = b.textContent;
+    document.getElementById('statusTool').textContent = 'Tool: ' + b.textContent;
+    lineStart=null; rectStart=null; // 選択は保持
+    draw();
+  });
+
+  document.getElementById('drawPreview').addEventListener('change', (e)=>{ drawOnDrag = !!e.target.checked; });
+  document.getElementById('snap').addEventListener('change', (e)=>{ snap45 = !!e.target.checked; });
+
+  document.getElementById('resize').addEventListener('click', ()=>{
+    const nc = Math.max(5, Math.min(200, parseInt(colsInput.value)||60));
+    const nr = Math.max(5, Math.min(200, parseInt(rowsInput.value)||40));
+    const ns = Math.max(8, Math.min(128, parseInt(sizeInput.value)||18));
+    resizeGrid(nc,nr,ns);
+  });
+  ;[colsInput, rowsInput, sizeInput].forEach(el=>{
+    el.addEventListener('keydown', (e)=>{
+      if(e.key==='Enter'){
+        const nc=Math.max(5, Math.min(200, parseInt(colsInput.value)||60));
+        const nr=Math.max(5, Math.min(200, parseInt(rowsInput.value)||40));
+        const ns=Math.max(8, Math.min(128, parseInt(sizeInput.value)||18));
+        resizeGrid(nc,nr,ns);
+      }
+    });
+  });
+
+  function addWheelAdjust(el, {step,min,max,onChange}){
+    el.addEventListener('wheel', (e)=>{
+      e.preventDefault();
+      const dir = e.deltaY>0 ? -1 : 1;
+      const mul = e.shiftKey ? 5 : 1;
+      const current = parseInt(el.value,10) || 0;
+      const next = Math.max(min, Math.min(max, current + dir*step*mul));
+      if(next===current) return;
+      el.value = next;
+      onChange(next, e);
+    }, {passive:false});
+  }
+  addWheelAdjust(sizeInput, {step:1,min:8,max:128,onChange:(v)=>{ cellSize=v; adjustCanvas(); draw(); }});
+  addWheelAdjust(colsInput, {step:1,min:5,max:200,onChange:(v)=>{ resizeGridQuick(v, rows, cellSize); }});
+  addWheelAdjust(rowsInput, {step:1,min:5,max:200,onChange:(v)=>{ resizeGridQuick(cols, v, cellSize); }});
+
+  document.getElementById('clear').addEventListener('click', ()=>{
+    if(!confirm('マップをクリアしますか？')) return;
+    pushHistory(); cells=createEmpty(cols,rows); draw();
+  });
+  document.getElementById('undo').addEventListener('click', ()=>{
+    if(history.length===0){ alert('元に戻す履歴がありません'); return; }
+    const prev = history.pop(); const curr = snapshot();
+    redoStack.push(curr); restore(prev);
+  });
+  document.getElementById('redo').addEventListener('click', ()=>{
+    if(redoStack.length===0){ alert('やり直す履歴がありません'); return; }
+    const next = redoStack.pop();
+    history.push(snapshot()); restore(next);
+  });
+
+  document.getElementById('exportPNG').addEventListener('click', ()=>{
+    const out=document.createElement('canvas'); out.width=cols*cellSize; out.height=rows*cellSize; const o=out.getContext('2d');
+    o.fillStyle='#ffffff'; o.fillRect(0,0,out.width,out.height);
+    for(let y=0;y<rows;y++) for(let x=0;x<cols;x++){
+      const v=cells[y][x];
+      if(v===1){ o.fillStyle='#cbd5e1'; o.fillRect(x*cellSize,y*cellSize,cellSize,cellSize);}
+      else if(v===2){ o.fillStyle='#f59e0b'; o.fillRect(x*cellSize,y*cellSize,cellSize,cellSize);}
+      else if(v===4){ o.fillStyle='#94a3b8'; o.fillRect(x*cellSize,y*cellSize,cellSize,cellSize);}
+      else if(typeof v==='object' && v){
+        if(v.type==='label'){
+          o.fillStyle='#06b6d4'; o.fillRect(x*cellSize,y*cellSize,cellSize,cellSize);
+          o.fillStyle='#0f172a'; o.font=Math.max(10,cellSize/4)+'px sans-serif';
+          o.textAlign='center'; o.textBaseline='middle';
+          o.fillText(v.text||'L', x*cellSize+cellSize/2, y*cellSize+cellSize/2);
+        } else if(v.type==='room'){ o.fillStyle='#a7f3d0'; o.fillRect(x*cellSize,y*cellSize,cellSize,cellSize);}
+        else if(v.type==='corridor'){ o.fillStyle='#fde68a'; o.fillRect(x*cellSize,y*cellSize,cellSize,cellSize);}
+      }
+    }
+    o.strokeStyle='rgba(15,23,42,0.08)'; o.lineWidth=1;
+    for(let x=0;x<=cols;x++){ o.beginPath(); o.moveTo(x*cellSize+0.5,0); o.lineTo(x*cellSize+0.5,rows*cellSize); o.stroke(); }
+    for(let y=0;y<=rows;y++){ o.beginPath(); o.moveTo(0,y*cellSize+0.5); o.lineTo(cols*cellSize,y*cellSize+0.5); o.stroke(); }
+    out.toBlob((blob)=>{ const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='floor_map.png'; a.click(); URL.revokeObjectURL(url); });
+  });
+
+  document.getElementById('saveJSON').addEventListener('click', ()=>{
+    const payload={cols,rows,cellSize,cells};
+    const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
+    const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='floor_map.json'; a.click(); URL.revokeObjectURL(a.href);
+  });
+  document.getElementById('loadJSON').addEventListener('click', ()=>{ document.getElementById('fileInput').click(); });
+  document.getElementById('fileInput').addEventListener('change', (e)=>{
+    const f=e.target.files[0]; if(!f) return; const r=new FileReader();
+    r.onload=()=>{ try{
+      const s=JSON.parse(r.result); if(!s.cols||!s.rows) throw Error('invalid');
+      pushHistory();
+      cols=s.cols; rows=s.rows; cellSize=s.cellSize||cellSize; cells=s.cells;
+      colsInput.value=cols; rowsInput.value=rows; sizeInput.value=cellSize;
+      adjustCanvas(); draw();
+    }catch(err){ alert('読み込みに失敗しました'); } };
+    r.readAsText(f);
+  });
+
+  document.getElementById('detect').addEventListener('click', ()=>{
+    const {rooms,corridors}=detectRoomsAndCorridors(); draw();
+    alert(`検出: 部屋 ${rooms.length} / 廊下 ${corridors.length}`);
+    console.log({rooms, corridors});
+  });
+  document.getElementById('completeMap').addEventListener('click', ()=>{
+    const {rooms,corridors}=detectRoomsAndCorridors(); draw();
+    alert(`フロアマップを解析してマークしました。\n結果: 部屋 ${rooms.length} / 廊下 ${corridors.length}`);
+    console.log('解析サマリー',{rooms,corridors});
+  });
+
+  // ======================== ショートカット ========================
+  window.addEventListener('keydown', (e)=>{
+    if(e.ctrlKey || e.metaKey){
+      const k=e.key.toLowerCase();
+      if(k==='z' && !e.shiftKey){ e.preventDefault(); document.getElementById('undo').click(); return; }
+      if(k==='y' || (k==='z' && e.shiftKey)){ e.preventDefault(); document.getElementById('redo').click(); return; }
+      if(k==='c'){ e.preventDefault(); doCopy(); return; }
+      if(k==='x'){ e.preventDefault(); doCut(); return; }
+      if(k==='v'){ e.preventDefault(); doPaste(); return; }
+      if(k==='a'){ e.preventDefault(); selection={x1:0,y1:0,x2:cols-1,y2:rows-1}; currentTool=TOOL.SELECT; document.getElementById('currentTool').textContent='選択'; draw(); return; }
+    }
+    if(e.key==='q'){ e.preventDefault(); applyTransform('rotL'); }
+    if(e.key==='e'){ e.preventDefault(); applyTransform('rotR'); }
+    if(e.key==='h'){ e.preventDefault(); applyTransform('flipH'); }
+    if(e.key==='v' && !e.ctrlKey && !e.metaKey){ e.preventDefault(); applyTransform('flipV'); }
+    if(e.key==='Escape'){
+      if(pastePending){ pastePending=false; document.getElementById('hint').textContent='ヒント: 直線/矩形はドラッグで始点→終点を指定'; draw(); return; }
+      if(selection){ selection=null; draw(); return; }
+    }
+    if(hasSelection()){
+      const step=e.shiftKey?5:1;
+      if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Delete'].includes(e.key)) e.preventDefault();
+      if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key)){
+        const data=getSelectionData(); if(!data) return;
+        const {x1,y1}=selection; const w=data.w, h=data.h; let nx=x1, ny=y1;
+        if(e.key==='ArrowUp') ny=Math.max(0,y1-step);
+        if(e.key==='ArrowDown') ny=Math.min(rows-h,y1+step);
+        if(e.key==='ArrowLeft') nx=Math.max(0,x1-step);
+        if(e.key==='ArrowRight') nx=Math.min(cols-w,x1+step);
+        if(nx!==x1 || ny!==y1){
+          beginHistory(); clearSelectionArea(); clipboard=data; placeClipboardAt(nx,ny);
+          selection={x1:nx,y1:ny,x2:nx+w-1,y2:ny+h-1}; draw();
+        }
+      }
+      if(e.key==='Delete'){ doDelete(); }
+    }
+  });
+
+  // ======================== 選択操作関数 ========================
+  const btnCopy=document.getElementById('selCopy');
+  const btnCut=document.getElementById('selCut');
+  const btnPaste=document.getElementById('selPaste');
+  const btnDelete=document.getElementById('selDelete');
+  const btnDup=document.getElementById('selDuplicate');
+  const btnRotL=document.getElementById('selRotL');
+  const btnRotR=document.getElementById('selRotR');
+  const btnRot180=document.getElementById('selRot180');
+  const btnFlipH=document.getElementById('selFlipH');
+  const btnFlipV=document.getElementById('selFlipV');
+
+  function doCopy(){ const data=getSelectionData(); if(!data){ alert('選択範囲がありません'); return; } clipboard=data; }
+  function doCut(){ const data=getSelectionData(); if(!data){ alert('選択範囲がありません'); return; } beginHistory(); clipboard=data; clearSelectionArea(); draw(); }
+  function doPaste(){ if(!clipboard){ alert('クリップボードが空です'); return; } pastePending=true; document.getElementById('hint').textContent='貼り付け位置をキャンバス上でクリック（右クリック/Escでキャンセル）'; draw(); }
+  function doDelete(){ if(!hasSelection()){ alert('選択範囲がありません'); return; } beginHistory(); clearSelectionArea(); selection=null; draw(); }
+  function doDuplicate(){ const data=getSelectionData(); if(!data){ alert('選択範囲がありません'); return; } clipboard=data; pastePending=true; document.getElementById('hint').textContent='複製の貼り付け位置をクリック'; draw(); }
+
+  function rotateData(d, dir){
+    const {w,h,data}=d;
+    if(dir==='180'){
+      const out=Array.from({length:h}, (_,yy)=>Array.from({length:w},(_,xx)=>deepCloneCell(data[h-1-yy][w-1-xx])));
+      return {w,h,data:out};
+    }
+    const W=h, H=w;
+    const out=Array.from({length:W}, ()=>Array(H));
+    for(let y=0;y<h;y++) for(let x=0;x<w;x++){
+      const v=deepCloneCell(data[y][x]);
+      if(dir==='R') out[x][H-1-y]=v; else out[W-1-x][y]=v;
+    }
+    const data2=Array.from({length:H}, (_,yy)=>Array.from({length:W},(_,xx)=>out[xx][yy]));
+    return {w:W,h:H,data:data2};
+  }
+  function flipData(d, axis){
+    const {w,h,data}=d;
+    const out=Array.from({length:h}, ()=>Array(w));
+    for(let y=0;y<h;y++) for(let x=0;x<w;x++){
+      const v=deepCloneCell(data[y][x]);
+      if(axis==='H') out[y][w-1-x]=v; else out[h-1-y][x]=v;
+    }
+    return {w,h,data:out};
+  }
+
+  function applyTransform(kind){
+    if(pastePending && clipboard){
+      if(kind==='rotL') clipboard=rotateData(clipboard,'L');
+      if(kind==='rotR') clipboard=rotateData(clipboard,'R');
+      if(kind==='rot180') clipboard=rotateData(clipboard,'180');
+      if(kind==='flipH') clipboard=flipData(clipboard,'H');
+      if(kind==='flipV') clipboard=flipData(clipboard,'V');
+      draw(); return;
+    }
+    const data=getSelectionData(); if(!data){ alert('選択範囲がありません'); return; }
+    let transformed=data;
+    if(kind==='rotL') transformed=rotateData(data,'L');
+    if(kind==='rotR') transformed=rotateData(data,'R');
+    if(kind==='rot180') transformed=rotateData(data,'180');
+    if(kind==='flipH') transformed=flipData(data,'H');
+    if(kind==='flipV') transformed=flipData(data,'V');
+    beginHistory();
+    const {x1,y1}=selection;
+    clearSelectionArea(); clipboard=transformed; placeClipboardAt(x1,y1);
+    selection={x1,y1,x2:Math.min(cols-1,x1+clipboard.w-1), y2:Math.min(rows-1,y1+clipboard.h-1)};
+    draw();
+  }
+
+  btnCopy.addEventListener('click', doCopy);
+  btnCut.addEventListener('click', doCut);
+  btnPaste.addEventListener('click', doPaste);
+  btnDelete.addEventListener('click', doDelete);
+  btnDup.addEventListener('click', doDuplicate);
+  btnRotL.addEventListener('click', ()=>applyTransform('rotL'));
+  btnRotR.addEventListener('click', ()=>applyTransform('rotR'));
+  btnRot180.addEventListener('click', ()=>applyTransform('rot180'));
+  btnFlipH.addEventListener('click', ()=>applyTransform('flipH'));
+  btnFlipV.addEventListener('click', ()=>applyTransform('flipV'));
+
+  // コンテキストメニュー
+  const ctxmenu=document.getElementById('ctxmenu');
+  const ctxmenuTemplate = ctxmenu.innerHTML.trim();
+  function openCtxMenu(e){
+    if(!ctxmenu.childElementCount && ctxmenuTemplate){
+      ctxmenu.innerHTML = ctxmenuTemplate;
+    }
+    ctxmenu.style.left=e.clientX+'px';
+    ctxmenu.style.top=e.clientY+'px';
+    ctxmenu.style.display='block';
+  }
+  function closeCtxMenu(removeContent=false){
+    ctxmenu.style.display='none';
+    if(removeContent){
+      ctxmenu.innerHTML='';
+    }
+  }
+  ctxmenu.addEventListener('click', (e)=>{
+    const act=e.target.getAttribute('data-act'); if(!act) return;
+    closeCtxMenu(true);
+    if(act==='copy') doCopy();
+    else if(act==='cut') doCut();
+    else if(act==='paste') doPaste();
+    else if(act==='delete') doDelete();
+    else if(act==='rotL') applyTransform('rotL');
+    else if(act==='rotR') applyTransform('rotR');
+    else if(act==='rot180') applyTransform('rot180');
+    else if(act==='flipH') applyTransform('flipH');
+    else if(act==='flipV') applyTransform('flipV');
+  });
+  window.addEventListener('mousedown', (e)=>{ if(e.target.closest('#ctxmenu')) return; closeCtxMenu(); });
+
+  // ======================== 起動 ========================
+  adjustCanvas(); draw();
+  </script>
+</body>
+</html>
+
